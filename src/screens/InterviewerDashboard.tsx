@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Dimensions,
   RefreshControl,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   Text,
   Card,
@@ -35,6 +36,13 @@ export default function InterviewerDashboard({ navigation, user, onLogout }: Das
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  
+  // Calculate interview stats
+  const interviewStats = useMemo(() => {
+    const approved = myInterviews.filter(interview => interview.status === 'Approved').length;
+    const pending = myInterviews.filter(interview => interview.status === 'Pending_Approval').length;
+    return { approved, pending };
+  }, [myInterviews]);
 
   useEffect(() => {
     loadDashboardData();
@@ -184,6 +192,20 @@ export default function InterviewerDashboard({ navigation, user, onLogout }: Das
               <Text style={styles.statLabel}>My Interviews</Text>
             </Card.Content>
           </Card>
+          
+          <Card style={styles.statCard}>
+            <Card.Content style={styles.statContent}>
+              <Text style={styles.statNumber}>{interviewStats.approved}</Text>
+              <Text style={styles.statLabel}>Accepted</Text>
+            </Card.Content>
+          </Card>
+          
+          <Card style={styles.statCard}>
+            <Card.Content style={styles.statContent}>
+              <Text style={styles.statNumber}>{interviewStats.pending}</Text>
+              <Text style={styles.statLabel}>Pending</Text>
+            </Card.Content>
+          </Card>
         </View>
 
         {/* Available Surveys */}
@@ -214,9 +236,77 @@ export default function InterviewerDashboard({ navigation, user, onLogout }: Das
                     {survey.description}
                   </Text>
                   <View style={styles.surveyMeta}>
-                    <Text style={styles.surveyMetaText}>Mode: {survey.mode.toUpperCase()}</Text>
-                    <Text style={styles.surveyMetaText}>Duration: {survey.estimatedDuration} min</Text>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Mode</Text>
+                      <Text style={styles.metaValue}>{survey.mode.toUpperCase()}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Duration</Text>
+                      <Text style={styles.metaValue}>{survey.estimatedDuration || 0} min</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Questions</Text>
+                      <Text style={styles.metaValue}>
+                        {survey.sections?.reduce((total, section) => 
+                          total + (section.questions?.length || 0), 0) || 0}
+                      </Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Target</Text>
+                      <Text style={styles.metaValue}>{survey.sampleSize?.toLocaleString() || 0}</Text>
+                    </View>
                   </View>
+
+                  {/* Assigned ACs */}
+                  {survey.assignedACs && survey.assignedACs.length > 0 && (
+                    <View style={styles.assignedACsContainer}>
+                      <View style={styles.assignedACsHeader}>
+                        <Ionicons name="location" size={14} color="#6b7280" />
+                        <Text style={styles.assignedACsLabel}>Areas:</Text>
+                      </View>
+                      <View style={styles.assignedACsChips}>
+                        {survey.assignedACs.slice(0, 3).map((ac, index) => (
+                          <View key={index} style={styles.acChip}>
+                            <Text style={styles.acChipText}>{ac}</Text>
+                          </View>
+                        ))}
+                        {survey.assignedACs.length > 3 && (
+                          <View style={styles.acChip}>
+                            <Text style={styles.acChipText}>+{survey.assignedACs.length - 3} more</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Quick targeting info */}
+                  {survey.targetAudience && (
+                    <View style={styles.quickTargeting}>
+                      {survey.targetAudience.demographics?.ageRange && (
+                        <Text style={styles.quickTargetingText}>
+                          Age: {survey.targetAudience.demographics.ageRange.min || 'N/A'}-{survey.targetAudience.demographics.ageRange.max || 'N/A'}
+                        </Text>
+                      )}
+                      {survey.targetAudience.demographics?.genderRequirements && (
+                        <Text style={styles.quickTargetingText}>
+                          Gender: {(() => {
+                            const requirements = survey.targetAudience.demographics.genderRequirements;
+                            const selectedGenders = Object.keys(requirements).filter(g => requirements[g] && !g.includes('Percentage'));
+                            return selectedGenders.map(gender => {
+                              const percentage = requirements[`${gender}Percentage`];
+                              const displayPercentage = selectedGenders.length === 1 && !percentage ? 100 : (percentage || 0);
+                              return `${gender}: ${displayPercentage}%`;
+                            }).join(', ');
+                          })()}
+                        </Text>
+                      )}
+                      {survey.targetAudience.geographic?.stateRequirements && (
+                        <Text style={styles.quickTargetingText}>
+                          State: {survey.targetAudience.geographic.stateRequirements}
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </Card.Content>
               </Card>
             ))
@@ -249,14 +339,37 @@ export default function InterviewerDashboard({ navigation, user, onLogout }: Das
               <Card key={interview._id} style={styles.interviewCard}>
                 <Card.Content>
                   <View style={styles.interviewHeader}>
-                    <Text style={styles.interviewTitle}>{interview.survey?.surveyName}</Text>
+                    <Text style={styles.interviewTitle}>{interview.survey?.surveyName || 'Unknown Survey'}</Text>
                     <View style={[styles.statusBadge, { backgroundColor: getStatusColor(interview.status) }]}>
                       <Text style={styles.statusText}>{getStatusText(interview.status)}</Text>
                     </View>
                   </View>
-                  <Text style={styles.interviewDate}>
-                    Started: {new Date(interview.startedAt).toLocaleDateString()}
-                  </Text>
+                  <View style={styles.interviewMeta}>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Started</Text>
+                      <Text style={styles.metaValue}>
+                        {interview.startedAt ? new Date(interview.startedAt).toLocaleDateString() : 'Unknown'}
+                      </Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Duration</Text>
+                      <Text style={styles.metaValue}>
+                        {interview.totalTimeSpent ? `${Math.floor(interview.totalTimeSpent / 60)} min` : 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Progress</Text>
+                      <Text style={styles.metaValue}>
+                        {interview.completionPercentage ? `${interview.completionPercentage}%` : 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Status</Text>
+                      <Text style={styles.metaValue}>
+                        {interview.status?.replace('_', ' ') || 'Unknown'}
+                      </Text>
+                    </View>
+                  </View>
                   {interview.completedAt && (
                     <Text style={styles.interviewDate}>
                       Completed: {new Date(interview.completedAt).toLocaleDateString()}
@@ -281,6 +394,8 @@ export default function InterviewerDashboard({ navigation, user, onLogout }: Das
         style={styles.fab}
         onPress={() => navigation.navigate('AvailableSurveys')}
         label="Start Interview"
+        iconColor="#ffffff"
+        labelTextColor="#ffffff"
       />
 
       <Snackbar
@@ -313,7 +428,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: 50,
-    paddingBottom: 20,
+    paddingBottom: 30,
     paddingHorizontal: 20,
   },
   headerContent: {
@@ -357,29 +472,40 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: -20,
-    marginBottom: 20,
+    marginTop: 20,
+    marginBottom: 24,
+    paddingHorizontal: 4,
   },
   statCard: {
-    flex: 1,
-    marginHorizontal: 5,
-    elevation: 4,
+    width: '48%',
+    marginBottom: 12,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    borderRadius: 12,
   },
   statContent: {
     alignItems: 'center',
     paddingVertical: 20,
   },
   statNumber: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#2563eb',
     marginBottom: 4,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6b7280',
     textAlign: 'center',
+    fontWeight: '500',
   },
   section: {
     marginBottom: 24,
@@ -396,8 +522,16 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
   surveyCard: {
-    marginBottom: 12,
-    elevation: 2,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    borderRadius: 12,
   },
   surveyHeader: {
     flexDirection: 'row',
@@ -421,14 +555,41 @@ const styles = StyleSheet.create({
   surveyMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 12,
   },
-  surveyMetaText: {
-    fontSize: 12,
+  metaItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  metaLabel: {
+    fontSize: 10,
     color: '#9ca3af',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1f2937',
+    textAlign: 'center',
+  },
+  interviewMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 8,
   },
   interviewCard: {
-    marginBottom: 12,
-    elevation: 2,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    borderRadius: 12,
   },
   interviewHeader: {
     flexDirection: 'row',
@@ -486,5 +647,51 @@ const styles = StyleSheet.create({
   },
   snackbar: {
     backgroundColor: '#dc2626',
+  },
+  // Assigned ACs styles for dashboard
+  assignedACsContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  assignedACsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  assignedACsLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  assignedACsChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  acChip: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+  },
+  acChipText: {
+    fontSize: 10,
+    color: '#1e40af',
+    fontWeight: '500',
+  },
+  // Quick targeting styles
+  quickTargeting: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  quickTargetingText: {
+    fontSize: 11,
+    color: '#6b7280',
+    marginBottom: 2,
   },
 });
